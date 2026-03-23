@@ -1,0 +1,11 @@
+# Ignorar dependencias de ambos proyectos
+server/node_modules/
+client/node_modules/
+
+# Ignorar variables de entorno (Secretos)
+server/.env
+client/.env
+
+# Ignorar archivos de compilación
+server/dist/
+client/dist/
