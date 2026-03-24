@@ -44,14 +44,25 @@ model Farm {
   animal_removals      AnimalRemoval[]
 }
 
+model User {
+  id         String     @id // Aquí guardaremos el UID único que genera Appwrite
+  email      String     @unique @db.VarChar(255)
+  name       String     @db.VarChar(100)
+  created_at DateTime   @default(now())
+
+  // Relación: Un usuario puede tener perfiles de empleado en muchas granjas
+  employments Employee[]
+}
+
 model Employee {
   id      Int     @id @default(autoincrement())
+  user_id String  // NUEVO: Conecta con el usuario global
   farm_id Int
-  name    String  @db.VarChar(100)
-  role    Role    @default(Operator)
+  role    Role    @default(User)
   active  Boolean @default(true)
 
   farm                  Farm                    @relation(fields: [farm_id], references: [id], onDelete: Cascade)
+  user    User    @relation(fields: [user_id], references: [id], onDelete: Cascade)
   matings               Mating[]
   abortions             Abortion[]
   farrowing_medications FarrowingMedication[]
@@ -61,6 +72,8 @@ model Employee {
   batch_feedings        BatchFeeding[]
   medical_treatments    MedicalTreatment[]
   sales                 Sale[]
+
+  @@unique([user_id, farm_id])
 }
 
 model Location {
@@ -439,9 +452,10 @@ model Sale {
 // ENUMS (Listas de valores estáticos)
 // ==========================================
 enum Role {
-  Operator
+  Administrator
+  User
   Veterinarian
-  Manager
+  Owner
 }
 
 enum LocationType {
