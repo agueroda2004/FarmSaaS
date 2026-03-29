@@ -6,6 +6,7 @@ import farmRoutes from "./routes/farm.route";
 import userRoutes from "./routes/user.route";
 import raceRoutes from "./routes/race.route";
 import locationRoutes from "./routes/location.routes";
+import animalRoutes from "./routes/animal.route";
 
 dotenv.config();
 
@@ -20,6 +21,7 @@ app.use("/api/farms", farmRoutes);
 app.use("/api/users", userRoutes);
 app.use("/api/races", raceRoutes);
 app.use("/api/locations", locationRoutes);
+app.use("/api/animals", animalRoutes);
 
 // Function to gracefully shutdown the server and disconnect Prisma, it will close the database connection when the server is stopped.
 process.on("SIGINT", async () => {
