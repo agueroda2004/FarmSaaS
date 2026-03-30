@@ -1,4 +1,5 @@
 import prisma from "../config/db";
+import { validateFarmMembership } from "../utils/farmAuth";
 
 type LocationType =
   | "Gestation"
@@ -24,22 +25,7 @@ export const createLocationService = async (
 ) => {
   const { farmId, name, type, capacity, observation } = data;
 
-  const requesterProfile = await prisma.employee.findFirst({
-    where: { farm_id: farmId, user_id: requesterId },
-  });
-
-  if (
-    !requesterProfile ||
-    !requesterProfile.active ||
-    (requesterProfile.role !== "Owner" &&
-      requesterProfile.role !== "Administrator")
-  ) {
-    throw {
-      statusCode: 403,
-      message:
-        "Forbidden: Only Owners and Admins can create races on this farm.",
-    };
-  }
+  await validateFarmMembership(requesterId, farmId, ["Owner", "Administrator"]);
 
   const existingLocation = await prisma.location.findFirst({
     where: { farm_id: farmId, name },
@@ -66,65 +52,6 @@ export const createLocationService = async (
 };
 
 /* =============================
-   Get Locations Service
-   DOES: This function retrieves all locations in the farm. It can also filter by location type.
-   =============================*/
-export const getLocationsService = async (
-  requesterId: string,
-  farmId: number,
-  type?: LocationType,
-) => {
-  const requesterProfile = await prisma.employee.findFirst({
-    where: { farm_id: farmId, user_id: requesterId },
-  });
-
-  if (!requesterProfile || !requesterProfile.active) {
-    throw {
-      statusCode: 403,
-      message: "Forbidden: You are not a member of this farm.",
-    };
-  }
-
-  const locations = await prisma.location.findMany({
-    where: { farm_id: farmId, ...(type !== undefined && { type }) },
-    orderBy: { name: "asc" },
-  });
-
-  return locations;
-};
-
-/* =============================
-   Get Single Location Service
-   DOES: This functions gets a single location of a farm.
-   =============================*/
-export const getSingleLocationService = async (
-  requesterId: string,
-  locationId: number,
-  farmId: number,
-) => {
-  const requesterProfile = await prisma.employee.findFirst({
-    where: { farm_id: farmId, user_id: requesterId },
-  });
-
-  if (!requesterProfile || !requesterProfile.active) {
-    throw {
-      statusCode: 403,
-      message: "Forbidden: You are not a member of this farm.",
-    };
-  }
-
-  const location = await prisma.location.findFirst({
-    where: { id: locationId, farm_id: farmId },
-  });
-
-  if (!location) {
-    throw { statusCode: 404, message: "Location not found in this farm." };
-  }
-
-  return location;
-};
-
-/* =============================
    Update Location Service
    DOES: This function updates an existing location in the farm.
    =============================*/
@@ -142,22 +69,7 @@ export const updateLocationService = async (
 ) => {
   const { farmId, name, type, capacity, observation, active } = data;
 
-  const requesterProfile = await prisma.employee.findFirst({
-    where: { farm_id: farmId, user_id: requesterId },
-  });
-
-  if (
-    !requesterProfile ||
-    !requesterProfile.active ||
-    (requesterProfile.role !== "Owner" &&
-      requesterProfile.role !== "Administrator")
-  ) {
-    throw {
-      statusCode: 403,
-      message:
-        "Forbidden: Only Owners and Admins can update locations on this farm.",
-    };
-  }
+  await validateFarmMembership(requesterId, farmId, ["Owner", "Administrator"]);
 
   const location = await prisma.location.findFirst({
     where: { farm_id: farmId, id: locationId },
@@ -203,22 +115,7 @@ export const deleteLocationService = async (
   locationId: number,
   farmId: number,
 ) => {
-  const requesterProfile = await prisma.employee.findFirst({
-    where: { farm_id: farmId, user_id: requesterId },
-  });
-
-  if (
-    !requesterProfile ||
-    !requesterProfile.active ||
-    (requesterProfile.role !== "Owner" &&
-      requesterProfile.role !== "Administrator")
-  ) {
-    throw {
-      statusCode: 403,
-      message:
-        "Forbidden: Only Owners and Admins can create locations on this farm.",
-    };
-  }
+  await validateFarmMembership(requesterId, farmId, ["Owner", "Administrator"]);
 
   const location = await prisma.location.findFirst({
     where: { farm_id: farmId, id: locationId },
@@ -252,4 +149,45 @@ export const deleteLocationService = async (
   await prisma.location.delete({
     where: { id: locationId },
   });
+};
+
+/* =============================
+   Get Locations Service
+   DOES: This function retrieves all locations in the farm. It can also filter by location type.
+   =============================*/
+export const getLocationsService = async (
+  requesterId: string,
+  farmId: number,
+  type?: LocationType,
+) => {
+  await validateFarmMembership(requesterId, farmId);
+
+  const locations = await prisma.location.findMany({
+    where: { farm_id: farmId, ...(type !== undefined && { type }) },
+    orderBy: { name: "asc" },
+  });
+
+  return locations;
+};
+
+/* =============================
+   Get Single Location Service
+   DOES: This functions gets a single location of a farm.
+   =============================*/
+export const getSingleLocationService = async (
+  requesterId: string,
+  locationId: number,
+  farmId: number,
+) => {
+  await validateFarmMembership(requesterId, farmId);
+
+  const location = await prisma.location.findFirst({
+    where: { id: locationId, farm_id: farmId },
+  });
+
+  if (!location) {
+    throw { statusCode: 404, message: "Location not found in this farm." };
+  }
+
+  return location;
 };

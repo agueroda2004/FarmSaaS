@@ -1,5 +1,6 @@
 import { Client, ID, Users } from "node-appwrite";
 import prisma from "../config/db";
+import { validateFarmMembership } from "../utils/farmAuth";
 
 type Role = "User" | "Owner" | "Administrator" | "Veterinarian";
 
@@ -12,7 +13,7 @@ const appwriteUsers = new Users(adminClient);
 
 /* =============================
    Create User Service
-   *TODO: This function creates a new user in the Appwrite identity provider and then creates a corresponding user and employee record in the database.
+   DOES: This function creates a new user in the Appwrite identity provider and then creates a corresponding user and employee record in the database.
    =============================*/
 export const createEmployeeService = async (
   requestId: string,
@@ -26,21 +27,7 @@ export const createEmployeeService = async (
 ) => {
   const { email, password, name, farmId, role } = userData;
 
-  const requesterProfile = await prisma.employee.findFirst({
-    where: { farm_id: farmId, user_id: requestId },
-  });
-
-  if (
-    !requesterProfile ||
-    (requesterProfile.role !== "Owner" &&
-      requesterProfile.role !== "Administrator")
-  ) {
-    throw {
-      statusCode: 403,
-      message:
-        "Forbidden: Only Owners and Admins can create users for this farm.",
-    };
-  }
+  await validateFarmMembership(requestId, farmId, ["Owner", "Administrator"]);
 
   let appwriteUserId: string;
   try {
@@ -79,7 +66,6 @@ export const createEmployeeService = async (
       data: {
         user_id: dbUser.id,
         farm_id: farmId,
-        name,
         role: role as Role,
       },
     });
@@ -92,7 +78,7 @@ export const createEmployeeService = async (
 
 /* =============================
    Update User Service
-   *TODO: This function update the user information such as name, role, active status and email.
+   DOES: This function updates the user information such as name, role, active status and email.
    =============================*/
 export const updateEmployeeService = async (
   requesterId: string,
@@ -106,21 +92,8 @@ export const updateEmployeeService = async (
   },
 ) => {
   const { farmId, name, email, role, active } = updateData;
-  const requesterProfile = await prisma.employee.findFirst({
-    where: { farm_id: farmId, user_id: requesterId },
-  });
 
-  if (
-    !requesterProfile ||
-    (requesterProfile.role !== "Owner" &&
-      requesterProfile.role !== "Administrator")
-  ) {
-    throw {
-      statusCode: 403,
-      message:
-        "Forbidden: Only Owners and Admins can update users for this farm.",
-    };
-  }
+  await validateFarmMembership(requesterId, farmId, ["Owner", "Administrator"]);
 
   const targetProfile = await prisma.employee.findFirst({
     where: { farm_id: farmId, user_id: targetUserId },
@@ -167,28 +140,14 @@ export const updateEmployeeService = async (
 
 /* =============================
    Delete User Service
-   *TODO: This function delete the user from the farm only if they have no activity, otherwise it should be deactivated and not deleted.
+   DOES: This function deletes the user from the farm only if they have no activity, otherwise it should be deactivated and not deleted.
    =============================*/
 export const deleteEmployeeService = async (
   requesterId: string,
   targetUserId: string,
   farmId: number,
 ) => {
-  const requesterProfile = await prisma.employee.findFirst({
-    where: { farm_id: farmId, user_id: requesterId },
-  });
-
-  if (
-    !requesterProfile ||
-    (requesterProfile.role !== "Owner" &&
-      requesterProfile.role !== "Administrator")
-  ) {
-    throw {
-      statusCode: 403,
-      message:
-        "Forbidden: Only Owners and Admins can delete users for this farm.",
-    };
-  }
+  await validateFarmMembership(requesterId, farmId, ["Owner", "Administrator"]);
 
   const targetProfile = await prisma.employee.findFirst({
     where: { farm_id: farmId, user_id: targetUserId },

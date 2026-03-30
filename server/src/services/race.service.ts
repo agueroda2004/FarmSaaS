@@ -1,8 +1,9 @@
 import prisma from "../config/db";
+import { validateFarmMembership } from "../utils/farmAuth";
 
 /* =============================
    Create Race Service
-   *DOES: This functions creates a new race in the farm. It checks if the requester is an active member of the farm and has the role of Owner or Administrator.
+   DOES: This functions creates a new race in the farm.
    =============================*/
 export const createRaceService = async (
   requesterId: string,
@@ -13,22 +14,7 @@ export const createRaceService = async (
 ) => {
   const { farmId, name } = data;
 
-  const requesterProfile = await prisma.employee.findFirst({
-    where: { farm_id: farmId, user_id: requesterId },
-  });
-
-  if (
-    !requesterProfile ||
-    !requesterProfile.active ||
-    (requesterProfile.role !== "Owner" &&
-      requesterProfile.role !== "Administrator")
-  ) {
-    throw {
-      statusCode: 403,
-      message:
-        "Forbidden: Only Owners and Admins can create races on this farm.",
-    };
-  }
+  await validateFarmMembership(requesterId, farmId, ["Owner", "Administrator"]);
 
   const existingRace = await prisma.race.findFirst({
     where: { name, farm_id: farmId },
@@ -52,32 +38,8 @@ export const createRaceService = async (
 };
 
 /* =============================
-   Get Races Service
-   *DOES: This functions gets all the races of a farm. It check if the requester is an active member of the farm.
-   =============================*/
-export const getRacesService = async (requesterId: string, farmId: number) => {
-  const requesterProfile = await prisma.employee.findFirst({
-    where: { farm_id: farmId, user_id: requesterId },
-  });
-
-  if (!requesterProfile || !requesterProfile.active) {
-    throw {
-      statusCode: 403,
-      message: "Forbidden: You are not a member of this farm.",
-    };
-  }
-
-  const races = await prisma.race.findMany({
-    where: { farm_id: farmId },
-    orderBy: { name: "asc" },
-  });
-
-  return races;
-};
-
-/* =============================
    Update Race Service
-   *DOES: This functions updates the race information such as name and active status. It checks if the requester is an active member of the farm and has the role of Owner or Administrator.
+   DOES: This functions updates the race information such as name and active status.
    =============================*/
 export const updateRaceService = async (
   requesterId: string,
@@ -90,21 +52,7 @@ export const updateRaceService = async (
 ) => {
   const { farmId, name, active } = data;
 
-  const requerterProfile = await prisma.employee.findFirst({
-    where: { farm_id: farmId, user_id: requesterId },
-  });
-
-  if (
-    !requerterProfile ||
-    !requerterProfile.active ||
-    (requerterProfile.role !== "Owner" &&
-      requerterProfile.role !== "Administrator")
-  ) {
-    throw {
-      statusCode: 403,
-      message: "Forbidden: Only Owners and Admins can update races.",
-    };
-  }
+  await validateFarmMembership(requesterId, farmId, ["Owner", "Administrator"]);
 
   const race = await prisma.race.findFirst({
     where: { id: raceId, farm_id: farmId },
@@ -140,28 +88,14 @@ export const updateRaceService = async (
 
 /* =============================
    Delete Race Service
-   *DOES: This functions deletes a race from the farm. It checks if the race has animals assigned, if it does, it will not allow the deletion.
+   DOES: This functions deletes a race from the farm.
    =============================*/
 export const deleteRaceService = async (
   requesterId: string,
   farmId: number,
   raceId: number,
 ) => {
-  const requesterProfile = await prisma.employee.findFirst({
-    where: { farm_id: farmId, user_id: requesterId },
-  });
-
-  if (
-    !requesterProfile ||
-    !requesterProfile.active ||
-    (requesterProfile.role !== "Owner" &&
-      requesterProfile.role !== "Administrator")
-  ) {
-    throw {
-      statusCode: 403,
-      message: "Forbidden: Only Owners and Admins can delete races.",
-    };
-  }
+  await validateFarmMembership(requesterId, farmId, ["Owner", "Administrator"]);
 
   const race = await prisma.race.findFirst({
     where: { id: raceId, farm_id: farmId },
@@ -186,24 +120,30 @@ export const deleteRaceService = async (
 };
 
 /* =============================
+   Get Races Service
+   DOES: This functions gets all the races of a farm.
+   =============================*/
+export const getRacesService = async (requesterId: string, farmId: number) => {
+  await validateFarmMembership(requesterId, farmId);
+
+  const races = await prisma.race.findMany({
+    where: { farm_id: farmId },
+    orderBy: { name: "asc" },
+  });
+
+  return races;
+};
+
+/* =============================
    Delete Race Service
-   *DOES: This functions gets a single race from the farm. It checks if the requester is an active member of the farm.
+   DOES: This functions gets a single race from the farm.
    =============================*/
 export const getSingleRaceService = async (
   requesterId: string,
   raceId: number,
   farmId: number,
 ) => {
-  const requesterProfile = await prisma.employee.findFirst({
-    where: { farm_id: farmId, user_id: requesterId },
-  });
-
-  if (!requesterProfile || !requesterProfile.active) {
-    throw {
-      statusCode: 403,
-      message: "Forbidden: You are not a member of this farm.",
-    };
-  }
+  await validateFarmMembership(requesterId, farmId);
 
   const race = await prisma.race.findFirst({
     where: { id: raceId, farm_id: farmId },
