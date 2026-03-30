@@ -1,4 +1,5 @@
 import prisma from "../config/db";
+import { validateFarmMembership } from "../utils/farmAuth";
 
 type AnimalType = "Sow" | "Boar";
 
@@ -32,22 +33,7 @@ export const createAnimalService = async (
     observation,
   } = data;
 
-  const requesterProfile = await prisma.employee.findFirst({
-    where: { farm_id: farmId, user_id: requesterId },
-  });
-
-  if (
-    !requesterProfile ||
-    !requesterProfile.active ||
-    (requesterProfile.role !== "Owner" &&
-      requesterProfile.role !== "Administrator")
-  ) {
-    throw {
-      statusCode: 403,
-      message:
-        "Forbidden: Only Owners and Admins can create races on this farm.",
-    };
-  }
+  await validateFarmMembership(requesterId, farmId, ["Owner", "Administrator"]);
 
   const existingTag = await prisma.animal.findFirst({
     where: { farm_id: farmId, tag_number: tagNumber },
@@ -100,86 +86,6 @@ export const createAnimalService = async (
 };
 
 /* =============================
-   Get Animals Service
-   DOES: This functions retrieves a list of animals from the farm. It can filter by type, raceId, locationId and active status.
-   =============================*/
-export const getAnimalsService = async (
-  requesterId: string,
-  farmId: number,
-  filters: {
-    type?: AnimalType;
-    raceId?: number;
-    locationId?: number;
-    active?: string;
-  },
-) => {
-  const { type, raceId, locationId, active } = filters;
-
-  const requesterProfile = await prisma.employee.findFirst({
-    where: { farm_id: farmId, user_id: requesterId },
-  });
-
-  if (!requesterProfile || !requesterProfile.active) {
-    throw {
-      statusCode: 403,
-      message: "Forbidden: You are not a member of this farm.",
-    };
-  }
-
-  const animals = await prisma.animal.findMany({
-    where: {
-      farm_id: farmId,
-      ...(type !== undefined && { type }),
-      ...(raceId !== undefined && { race_id: raceId }),
-      ...(locationId !== undefined && { location_id: locationId }),
-      ...(active !== undefined && { active: active === "true" }),
-    },
-    include: {
-      race: { select: { id: true, name: true } },
-      location: { select: { id: true, name: true, type: true } },
-    },
-    orderBy: { tag_number: "asc" },
-  });
-
-  return animals;
-};
-
-/* =============================
-   Get Single Animal Service
-   DOES: This functions retrieves a single animal from the farm.
-   =============================*/
-export const getSingleAnimalService = async (
-  requesterId: string,
-  animalId: number,
-  farmId: number,
-) => {
-  const requesterProfile = await prisma.employee.findFirst({
-    where: { farm_id: farmId, user_id: requesterId },
-  });
-
-  if (!requesterProfile || !requesterProfile.active) {
-    throw {
-      statusCode: 403,
-      message: "Forbidden: You are not a member of this farm.",
-    };
-  }
-
-  const animal = await prisma.animal.findFirst({
-    where: { id: animalId, farm_id: farmId },
-    include: {
-      race: { select: { id: true, name: true } },
-      location: { select: { id: true, name: true, type: true } },
-    },
-  });
-
-  if (!animal) {
-    throw { statusCode: 404, message: "Animal not found in this farm" };
-  }
-
-  return animal;
-};
-
-/* =============================
    Update Animal Service
    DOES: This functions updates an existing animal in the farm.
    =============================*/
@@ -210,21 +116,7 @@ export const updateAnimalService = async (
     active,
   } = data;
 
-  const requesterProfile = await prisma.employee.findFirst({
-    where: { farm_id: farmId, user_id: requesterId },
-  });
-
-  if (
-    !requesterProfile ||
-    !requesterProfile.active ||
-    (requesterProfile.role !== "Owner" &&
-      requesterProfile.role !== "Administrator")
-  ) {
-    throw {
-      statusCode: 403,
-      message: "Forbidden: Only Owners and Admins can update animals.",
-    };
-  }
+  await validateFarmMembership(requesterId, farmId, ["Owner", "Administrator"]);
 
   const animal = await prisma.animal.findFirst({
     where: { farm_id: farmId, id: animalId },
@@ -242,8 +134,75 @@ export const updateAnimalService = async (
     if (existingTag) {
       throw {
         statusCode: 409,
-        message: "An animal with this tag number already exist in this farm",
+        message: "An animal with this tag number already exists in this farm",
       };
+    }
+  }
+
+  if (bornDate) {
+    const effectiveEntryDate = entryDate
+      ? new Date(entryDate)
+      : animal.entry_date;
+
+    if (new Date(bornDate) > effectiveEntryDate) {
+      throw {
+        statusCode: 400,
+        message: `Born date cannot be greater than entry date (${effectiveEntryDate.toISOString().split("T")[0]}).`,
+      };
+    }
+  }
+
+  const isOnlyUpdatingActiveStatus =
+    active !== undefined &&
+    !tagNumber &&
+    !raceId &&
+    !entryDate &&
+    !bornDate &&
+    !parity &&
+    !locationId &&
+    !observation;
+
+  if (!animal.active && !isOnlyUpdatingActiveStatus) {
+    throw {
+      statusCode: 400,
+      message: "Cannot update an inactive animal. Reactivate it first.",
+    };
+  }
+
+  if (entryDate) {
+    const dates: Date[] = [];
+
+    if (animal.type === "Sow") {
+      const firstService = await prisma.service.findFirst({
+        where: { sow_id: animalId },
+        orderBy: { start_date: "asc" },
+      });
+      if (firstService) dates.push(firstService.start_date);
+    }
+
+    if (animal.type === "Boar") {
+      const firstMating = await prisma.mating.findFirst({
+        where: { boar_id: animalId },
+        orderBy: { date: "asc" },
+      });
+      if (firstMating) dates.push(firstMating.date);
+    }
+
+    const firstRemoval = await prisma.animalRemoval.findFirst({
+      where: { animal_id: animalId },
+      orderBy: { date: "asc" },
+    });
+    if (firstRemoval) dates.push(firstRemoval.date);
+
+    if (dates.length > 0) {
+      const earliestDate = new Date(Math.min(...dates.map((d) => d.getTime())));
+
+      if (new Date(entryDate) > earliestDate) {
+        throw {
+          statusCode: 400,
+          message: `Entry date cannot be greater than the first recorded event (${earliestDate.toISOString().split("T")[0]}).`,
+        };
+      }
     }
   }
 
@@ -297,21 +256,7 @@ export const deleteAnimalService = async (
   animalId: number,
   farmId: number,
 ) => {
-  const requesterProfile = await prisma.employee.findFirst({
-    where: { farm_id: farmId, user_id: requesterId },
-  });
-
-  if (
-    !requesterProfile ||
-    !requesterProfile.active ||
-    (requesterProfile.role !== "Owner" &&
-      requesterProfile.role !== "Administrator")
-  ) {
-    throw {
-      statusCode: 403,
-      message: "Forbidden: Only Owners and Admins can delete animals.",
-    };
-  }
+  await validateFarmMembership(requesterId, farmId, ["Owner", "Administrator"]);
 
   const animal = await prisma.animal.findFirst({
     where: { farm_id: farmId, id: animalId },
@@ -345,4 +290,66 @@ export const deleteAnimalService = async (
   await prisma.animal.delete({
     where: { farm_id: farmId, id: animalId },
   });
+};
+
+/* =============================
+   Get Animals Service
+   DOES: This functions retrieves a list of animals from the farm. It can filter by type, raceId, locationId and active status.
+   =============================*/
+export const getAnimalsService = async (
+  requesterId: string,
+  farmId: number,
+  filters: {
+    type?: AnimalType;
+    raceId?: number;
+    locationId?: number;
+    active?: string;
+  },
+) => {
+  const { type, raceId, locationId, active } = filters;
+
+  await validateFarmMembership(requesterId, farmId);
+
+  const animals = await prisma.animal.findMany({
+    where: {
+      farm_id: farmId,
+      ...(type !== undefined && { type }),
+      ...(raceId !== undefined && { race_id: raceId }),
+      ...(locationId !== undefined && { location_id: locationId }),
+      ...(active !== undefined && { active: active === "true" }),
+    },
+    include: {
+      race: { select: { id: true, name: true } },
+      location: { select: { id: true, name: true, type: true } },
+    },
+    orderBy: { tag_number: "asc" },
+  });
+
+  return animals;
+};
+
+/* =============================
+   Get Single Animal Service
+   DOES: This functions retrieves a single animal from the farm.
+   =============================*/
+export const getSingleAnimalService = async (
+  requesterId: string,
+  animalId: number,
+  farmId: number,
+) => {
+  await validateFarmMembership(requesterId, farmId);
+
+  const animal = await prisma.animal.findFirst({
+    where: { id: animalId, farm_id: farmId },
+    include: {
+      race: { select: { id: true, name: true } },
+      location: { select: { id: true, name: true, type: true } },
+    },
+  });
+
+  if (!animal) {
+    throw { statusCode: 404, message: "Animal not found in this farm" };
+  }
+
+  return animal;
 };
